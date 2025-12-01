@@ -50,21 +50,23 @@ def parse_time_from_filename(filename: str) -> datetime | None:
     if m := re.search(r'(20\d{2})[-_](0[1-9]|1[0-2])[-_](0[1-9]|[12]\d|3[01])', name):
         return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), 12, 0, 0)
     
-    # 通用：13位毫秒时间戳
-    if m := re.search(r'(\d{13})', name):
-        ts = int(m.group(1)) / 1000
-        if 1000000000 < ts < 2000000000:
-            return datetime.fromtimestamp(ts)
+    # Notepad_YYYYMMDDHHMM_xxx 或 vp_output_YYYYMMDDHHMM
+    if m := re.search(r'_(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])([0-5]\d)', name):
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), 0)
+    
+    # 通用：13位毫秒时间戳（优先匹配最后一个）
+    matches = list(re.finditer(r'(\d{13})', name))
+    if matches:
+        for m in reversed(matches):
+            ts = int(m.group(1)) / 1000
+            if 1000000000 < ts < 2000000000:
+                return datetime.fromtimestamp(ts)
     
     # 通用：10位秒时间戳
     if m := re.search(r'(\d{10})', name):
         ts = int(m.group(1))
         if 1000000000 < ts < 2000000000:
             return datetime.fromtimestamp(ts)
-    
-    # Notepad_YYYYMMDDHHMM_xxx 或 vp_output_YYYYMMDDHHMM
-    if m := re.search(r'_(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])([0-5]\d)$', name):
-        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), 0)
     
     # video_YYMMDD_HHMMSS
     if m := re.match(r'video_(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})', name):
