@@ -101,6 +101,19 @@ HTML = '''
             font-size: 14px;
             color: #aaa;
         }
+        .progress {
+            margin-top: 16px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d9ff, #00ffcc);
+            width: 0%;
+            transition: width 0.3s;
+        }
         .stats {
             display: flex;
             justify-content: center;
@@ -117,8 +130,9 @@ HTML = '''
         <h1>照片时间修正</h1>
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">📷</div>
-            <div class="upload-text">点击或拖拽上传图片/视频</div>
+            <div class="upload-text">点击选择文件 / 长按选择文件夹</div>
             <input type="file" id="fileInput" multiple accept="image/*,video/*">
+            <input type="file" id="folderInput" webkitdirectory>
         </div>
         <div class="file-list" id="fileList" style="display:none;"></div>
         <div class="stats" id="stats" style="display:none;">
@@ -126,6 +140,7 @@ HTML = '''
             <span class="stat-error" id="statErr"></span>
         </div>
         <button class="btn btn-primary" id="submitBtn" disabled>处理并下载</button>
+        <div class="progress" id="progress" style="display:none;"><div class="progress-bar" id="progressBar"></div></div>
         <div class="status" id="status"></div>
     </div>
     <script>
@@ -137,7 +152,12 @@ HTML = '''
         const stats = document.getElementById('stats');
         let files = [];
 
+        const folderInput = document.getElementById('folderInput');
+        let pressTimer;
         uploadArea.onclick = () => fileInput.click();
+        uploadArea.oncontextmenu = e => { e.preventDefault(); folderInput.click(); };
+        uploadArea.ontouchstart = () => { pressTimer = setTimeout(() => folderInput.click(), 500); };
+        uploadArea.ontouchend = () => clearTimeout(pressTimer);
         uploadArea.ondragover = e => { e.preventDefault(); uploadArea.classList.add('dragover'); };
         uploadArea.ondragleave = () => uploadArea.classList.remove('dragover');
         uploadArea.ondrop = e => {
@@ -146,6 +166,7 @@ HTML = '''
             handleFiles(e.dataTransfer.files);
         };
         fileInput.onchange = () => handleFiles(fileInput.files);
+        folderInput.onchange = () => handleFiles(folderInput.files);
 
         async function handleFiles(newFiles) {
             files = [...files, ...Array.from(newFiles)];
@@ -156,12 +177,23 @@ HTML = '''
             });
             const parsed = await resp.json();
             
+            // 按解析时间排序（新的在前）
+            const items = files.map((f, i) => ({file: f, time: parsed[i], idx: i}));
+            items.sort((a, b) => {
+                if (!a.time && !b.time) return 0;
+                if (!a.time) return 1;
+                if (!b.time) return -1;
+                return new Date(b.time) - new Date(a.time);
+            });
+            files = items.map(it => it.file);
+            const sortedTimes = items.map(it => it.time);
+            
             let ok = 0, err = 0;
             fileList.innerHTML = '';
             files.forEach((f, i) => {
                 const div = document.createElement('div');
                 div.className = 'file-item';
-                const time = parsed[i];
+                const time = sortedTimes[i];
                 if (time) {
                     div.innerHTML = `<span class="file-name">${f.name}</span><span class="file-time">${time}</span>`;
                     ok++;
@@ -180,23 +212,57 @@ HTML = '''
 
         submitBtn.onclick = async () => {
             submitBtn.disabled = true;
-            status.textContent = '处理中...';
+            const progress = document.getElementById('progress');
+            const progressBar = document.getElementById('progressBar');
+            progress.style.display = 'block';
             
-            const formData = new FormData();
-            files.forEach(f => formData.append('files', f));
+            const BATCH_SIZE = 20;
+            const validFiles = files.filter(f => {
+                const resp = fetch('/parse', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({names: [f.name]})
+                });
+                return true;
+            });
             
-            const resp = await fetch('/process', { method: 'POST', body: formData });
-            if (resp.ok) {
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
+            const allBlobs = [];
+            for (let i = 0; i < files.length; i += BATCH_SIZE) {
+                const batch = files.slice(i, i + BATCH_SIZE);
+                status.textContent = `上传中 ${Math.min(i + BATCH_SIZE, files.length)}/${files.length}`;
+                progressBar.style.width = `${(i / files.length) * 50}%`;
+                
+                const formData = new FormData();
+                batch.forEach(f => formData.append('files', f));
+                
+                const resp = await fetch('/process', { method: 'POST', body: formData });
+                if (resp.ok) {
+                    allBlobs.push(await resp.blob());
+                }
+                progressBar.style.width = `${((i + BATCH_SIZE) / files.length) * 50 + 50}%`;
+            }
+            
+            status.textContent = '打包中...';
+            progressBar.style.width = '100%';
+            
+            if (allBlobs.length === 1) {
+                const url = URL.createObjectURL(allBlobs[0]);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = 'photos_fixed.zip';
                 a.click();
-                status.textContent = '下载完成';
             } else {
-                status.textContent = '处理失败';
+                for (let i = 0; i < allBlobs.length; i++) {
+                    const url = URL.createObjectURL(allBlobs[i]);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `photos_fixed_${i + 1}.zip`;
+                    a.click();
+                    await new Promise(r => setTimeout(r, 500));
+                }
             }
+            
+            status.textContent = `下载完成，共 ${allBlobs.length} 个压缩包`;
             submitBtn.disabled = false;
         };
     </script>
@@ -209,6 +275,10 @@ def parse_time_from_filename(filename: str) -> datetime | None:
     name = Path(filename).stem
     
     if m := re.match(r'mmexport(\d{13})', name):
+        ts = int(m.group(1)) / 1000
+        return datetime.fromtimestamp(ts)
+    
+    if m := re.match(r'mmexport_(\d{13})', name):
         ts = int(m.group(1)) / 1000
         return datetime.fromtimestamp(ts)
     
@@ -249,6 +319,15 @@ def parse_time_from_filename(filename: str) -> datetime | None:
         ts = int(m.group(1))
         if 1000000000 < ts < 2000000000:
             return datetime.fromtimestamp(ts)
+    
+    # Notepad_YYYYMMDDHHMM_xxx 或 vp_output_YYYYMMDDHHMM
+    if m := re.search(r'_(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])([0-5]\d)$', name):
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), 0)
+    
+    # video_YYMMDD_HHMMSS
+    if m := re.match(r'video_(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})', name):
+        year = 2000 + int(m.group(1))
+        return datetime(year, int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6)))
     
     return None
 

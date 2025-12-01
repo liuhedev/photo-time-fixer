@@ -15,6 +15,11 @@ def parse_time_from_filename(filename: str) -> datetime | None:
         ts = int(m.group(1)) / 1000
         return datetime.fromtimestamp(ts)
     
+    # mmexport_ + 13位毫秒时间戳
+    if m := re.match(r'mmexport_(\d{13})', name):
+        ts = int(m.group(1)) / 1000
+        return datetime.fromtimestamp(ts)
+    
     # lv_xxx_YYYYMMDDHHMMSS
     if m := re.search(r'_(\d{14})$', name):
         return datetime.strptime(m.group(1), '%Y%m%d%H%M%S')
@@ -57,6 +62,15 @@ def parse_time_from_filename(filename: str) -> datetime | None:
         if 1000000000 < ts < 2000000000:
             return datetime.fromtimestamp(ts)
     
+    # Notepad_YYYYMMDDHHMM_xxx 或 vp_output_YYYYMMDDHHMM
+    if m := re.search(r'_(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])([01]\d|2[0-3])([0-5]\d)$', name):
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), 0)
+    
+    # video_YYMMDD_HHMMSS
+    if m := re.match(r'video_(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})', name):
+        year = 2000 + int(m.group(1))
+        return datetime(year, int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6)))
+    
     return None
 
 
@@ -80,8 +94,10 @@ def fix_exif_time(filepath: str, dt: datetime) -> bool:
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python3 fix_time.py <目录路径>")
+        print("用法: python3 fix_time.py <目录路径> [--rename]")
         sys.exit(1)
+    
+    rename_mode = '--rename' in sys.argv
     
     target_dir = Path(sys.argv[1])
     if not target_dir.is_dir():
@@ -91,6 +107,7 @@ def main():
     fixed = 0
     skipped = 0
     failed = 0
+    renamed = 0
     
     for f in sorted(target_dir.iterdir()):
         if not f.is_file():
@@ -98,8 +115,24 @@ def main():
         
         dt = parse_time_from_filename(f.name)
         if dt:
+            if rename_mode:
+                ts = int(dt.timestamp())
+                ext = f.suffix
+                new_name = dt.strftime('%Y%m%d%H%M%S') + '_' + str(ts) + ext
+                new_path = f.parent / new_name
+                if not new_path.exists():
+                    f.rename(new_path)
+                    print(f"✓ {f.name} -> {new_name}")
+                    renamed += 1
+                    f = new_path
+                else:
+                    print(f"✗ {f.name} (目标文件已存在)")
+                    failed += 1
+                    continue
+            
             if fix_exif_time(str(f), dt):
-                print(f"✓ {f.name} -> {dt}")
+                if not rename_mode:
+                    print(f"✓ {f.name} -> {dt}")
                 fixed += 1
             else:
                 print(f"✗ {f.name} (写入失败)")
@@ -108,7 +141,10 @@ def main():
             print(f"- {f.name} (无法解析)")
             skipped += 1
     
-    print(f"\n完成: 修正 {fixed} 个, 跳过 {skipped} 个, 失败 {failed} 个")
+    if rename_mode:
+        print(f"\n完成: 重命名 {renamed} 个, 修正 {fixed} 个, 跳过 {skipped} 个, 失败 {failed} 个")
+    else:
+        print(f"\n完成: 修正 {fixed} 个, 跳过 {skipped} 个, 失败 {failed} 个")
 
 
 if __name__ == '__main__':
