@@ -10,6 +10,25 @@ from pathlib import Path
 def parse_time_from_filename(filename: str) -> datetime | None:
     name = Path(filename).stem
     
+    # 新生成格式：YYYYMMDDHHMMSS_时间戳（支持12-14位日期时间）
+    if m := re.match(r'(\d{12,14})_(\d+)', name):
+        dt_str = m.group(1)
+        if len(dt_str) == 14:
+            try:
+                return datetime.strptime(dt_str, '%Y%m%d%H%M%S')
+            except ValueError:
+                pass
+        elif len(dt_str) == 12:
+            try:
+                return datetime.strptime(dt_str, '%Y%m%d%H%M')
+            except ValueError:
+                pass
+        elif len(dt_str) == 13:
+            try:
+                return datetime.strptime(dt_str[:12], '%Y%m%d%H%M')
+            except ValueError:
+                pass
+    
     # mmexport + 13位毫秒时间戳
     if m := re.match(r'mmexport(\d{13})', name):
         ts = int(m.group(1)) / 1000
