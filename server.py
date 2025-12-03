@@ -376,12 +376,17 @@ def process():
             ts = dt.timestamp()
             os.utime(filepath, (ts, ts))
             
-            processed.append(filepath)
+            ext = Path(f.filename).suffix
+            new_name = dt.strftime('%Y%m%d') + '_' + str(int(ts)) + ext
+            new_path = os.path.join(tmpdir, new_name)
+            os.rename(filepath, new_path)
+            
+            processed.append((new_path, new_name))
         
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for fp in processed:
-                zf.write(fp, os.path.basename(fp))
+            for fp, name in processed:
+                zf.write(fp, name)
         
         zip_buffer.seek(0)
         return send_file(zip_buffer, mimetype='application/zip', download_name='photos_fixed.zip')
