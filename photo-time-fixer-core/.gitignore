@@ -21,17 +21,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Node.js dependencies
-node_modules/
-uniapp-photo-time-fixer/node_modules/
-
-# HBuilderX files
-uniapp-photo-time-fixer/.hbuilderx/
-
-# Build outputs
-uniapp-photo-time-fixer/unpackage/
-uniapp-photo-time-fixer/dist/
-
 # IDE and editor files
 .vscode/
 .idea/
