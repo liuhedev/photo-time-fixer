@@ -111,10 +111,11 @@ def fix_exif_time(filepath: str, dt: datetime) -> bool:
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python3 fix_time.py <目录路径> [--rename]")
+        print("用法: python3 fix_time.py <目录路径> [--rename] [--only-special]")
         sys.exit(1)
     
     rename_mode = '--rename' in sys.argv
+    only_special = '--only-special' in sys.argv
     
     target_dir = Path(sys.argv[1])
     if not target_dir.is_dir():
@@ -129,6 +130,12 @@ def main():
     for f in sorted(target_dir.iterdir()):
         if not f.is_file():
             continue
+        
+        # 批量模式过滤
+        if only_special:
+            name_lower = f.name.lower()
+            if not (name_lower.startswith('mmexport') or name_lower.startswith('petal')):
+                continue
         
         dt = parse_time_from_filename(f.name)
         if dt:

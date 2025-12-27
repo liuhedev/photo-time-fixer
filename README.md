@@ -36,10 +36,28 @@ pip install -r requirements.txt
 ### 命令行
 
 ```bash
-python3 fix_time.py <目录路径> [--rename]
+python3 fix_time.py <目录路径> [--rename] [--only-special]
 ```
 
 - `--rename`: 重命名文件为 `YYYYMMDDHHMMSS_时间戳.扩展名` 格式
+- `--only-special`: 批量模式，仅处理 `mmexport` 或 `petal` 开头的文件
+
+### 高效批量处理（手机局域网方案）
+
+如果手机中照片过多，通过 Web 上传较慢，推荐使用 **SMB/网络邻居** 方式：
+
+1. **电脑开启共享**：
+   - **macOS**: 系统设置 -> 通用 -> 共享 -> 开启“文件共享”，添加一个空的共享文件夹。
+2. **手机连接电脑**：
+   - **iPhone**: “文件”App -> 右上角 `...` -> 连接服务器 -> 输入电脑 IP。
+   - **Android**: 使用文件管理器（如 ES 文件浏览器）连接局域网 SMB。
+3. **传输与处理**：
+   - 将手机相册中的 `mmexport`/`petal` 照片移动到共享文件夹。
+   - 在电脑端运行脚本：
+     ```bash
+     python3 fix_time.py /path/to/shared/folder --rename --only-special
+     ```
+   - 处理完成后，直接在手机“文件”App 中即可查看到修正后的文件。
 
 ### Web 版
 
