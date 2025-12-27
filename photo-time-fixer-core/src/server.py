@@ -121,6 +121,25 @@ HTML = '''
             margin-top: 16px;
             font-size: 13px;
         }
+        .filter-options {
+            display: flex;
+            justify-content: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        .filter-options label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            gap: 8px;
+        }
+        .filter-options input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #00d9ff;
+        }
         .stat { color: #00d9ff; }
         .stat-error { color: #ff6b6b; }
     </style>
@@ -131,13 +150,18 @@ HTML = '''
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">📷</div>
             <div class="upload-text">点击选择文件 / 长按选择文件夹</div>
-            <input type="file" id="fileInput" multiple accept="image/*,video/*">
+            <input type="file" id="fileInput" multiple>
             <input type="file" id="folderInput" webkitdirectory>
         </div>
         <div class="file-list" id="fileList" style="display:none;"></div>
         <div class="stats" id="stats" style="display:none;">
             <span class="stat" id="statOk"></span>
             <span class="stat-error" id="statErr"></span>
+        </div>
+        <div class="filter-options" id="filterOptions">
+            <label title="开启后，即使选择了整个文件夹，也只处理 mmexport 或 petal 开头的文件">
+                <input type="checkbox" id="onlySpecialFiles" checked> 批量模式：仅处理 mmexport/petal 开头的文件
+            </label>
         </div>
         <button class="btn btn-primary" id="submitBtn" disabled>处理并下载</button>
         <div class="progress" id="progress" style="display:none;"><div class="progress-bar" id="progressBar"></div></div>
@@ -150,7 +174,10 @@ HTML = '''
         const submitBtn = document.getElementById('submitBtn');
         const status = document.getElementById('status');
         const stats = document.getElementById('stats');
+        const filterOptions = document.getElementById('filterOptions');
+        const onlySpecialFiles = document.getElementById('onlySpecialFiles');
         let files = [];
+        let sortedTimes = [];
 
         const folderInput = document.getElementById('folderInput');
         let pressTimer;
@@ -167,6 +194,7 @@ HTML = '''
         };
         fileInput.onchange = () => handleFiles(fileInput.files);
         folderInput.onchange = () => handleFiles(folderInput.files);
+        onlySpecialFiles.onchange = () => renderFileList();
 
         async function handleFiles(newFiles) {
             files = [...files, ...Array.from(newFiles)];
@@ -186,11 +214,20 @@ HTML = '''
                 return new Date(b.time) - new Date(a.time);
             });
             files = items.map(it => it.file);
-            const sortedTimes = items.map(it => it.time);
-            
+            sortedTimes = items.map(it => it.time);
+            renderFileList();
+        }
+
+        function renderFileList() {
             let ok = 0, err = 0;
             fileList.innerHTML = '';
+            const filterActive = onlySpecialFiles.checked;
+            
             files.forEach((f, i) => {
+                const nameLower = f.name.toLowerCase();
+                const isMatch = nameLower.startsWith('mmexport') || nameLower.startsWith('petal');
+                if (filterActive && !isMatch) return;
+
                 const div = document.createElement('div');
                 div.className = 'file-item';
                 const time = sortedTimes[i];
@@ -203,8 +240,9 @@ HTML = '''
                 }
                 fileList.appendChild(div);
             });
-            fileList.style.display = 'block';
-            stats.style.display = 'flex';
+
+            fileList.style.display = files.length > 0 ? 'block' : 'none';
+            stats.style.display = files.length > 0 ? 'flex' : 'none';
             document.getElementById('statOk').textContent = `可处理: ${ok}`;
             document.getElementById('statErr').textContent = `跳过: ${err}`;
             submitBtn.disabled = ok === 0;
@@ -216,21 +254,19 @@ HTML = '''
             const progressBar = document.getElementById('progressBar');
             progress.style.display = 'block';
             
-            const BATCH_SIZE = 20;
-            const validFiles = files.filter(f => {
-                const resp = fetch('/parse', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({names: [f.name]})
-                });
-                return true;
+            const filterActive = onlySpecialFiles.checked;
+            const targetFiles = files.filter(f => {
+                if (!filterActive) return true;
+                const nameLower = f.name.toLowerCase();
+                return nameLower.startsWith('mmexport') || nameLower.startsWith('petal');
             });
             
+            const BATCH_SIZE = 20;
             const allBlobs = [];
-            for (let i = 0; i < files.length; i += BATCH_SIZE) {
-                const batch = files.slice(i, i + BATCH_SIZE);
-                status.textContent = `上传中 ${Math.min(i + BATCH_SIZE, files.length)}/${files.length}`;
-                progressBar.style.width = `${(i / files.length) * 50}%`;
+            for (let i = 0; i < targetFiles.length; i += BATCH_SIZE) {
+                const batch = targetFiles.slice(i, i + BATCH_SIZE);
+                status.textContent = `上传中 ${Math.min(i + BATCH_SIZE, targetFiles.length)}/${targetFiles.length}`;
+                progressBar.style.width = `${(i / targetFiles.length) * 50}%`;
                 
                 const formData = new FormData();
                 batch.forEach(f => formData.append('files', f));
@@ -239,8 +275,9 @@ HTML = '''
                 if (resp.ok) {
                     allBlobs.push(await resp.blob());
                 }
-                progressBar.style.width = `${((i + BATCH_SIZE) / files.length) * 50 + 50}%`;
+                progressBar.style.width = `${((i + BATCH_SIZE) / targetFiles.length) * 50 + 50}%`;
             }
+            // ... (剩余下载代码保持不变)
             
             status.textContent = '打包中...';
             progressBar.style.width = '100%';
@@ -365,13 +402,28 @@ def process():
             f.save(filepath)
             
             dt_str = dt.strftime('%Y:%m:%d %H:%M:%S')
-            subprocess.run([
+            cmd = [
                 'exiftool', '-overwrite_original',
                 f'-AllDates={dt_str}',
                 f'-FileModifyDate={dt_str}',
                 f'-FileCreateDate={dt_str}',
-                filepath
-            ], capture_output=True)
+            ]
+            
+            # 针对视频文件增加更多时间标签
+            ext = Path(f.filename).suffix.lower()
+            if ext in ['.mp4', '.mov', '.m4v', '.3gp', '.avi', '.mkv', '.wmv']:
+                cmd.extend([
+                    f'-CreateDate={dt_str}',
+                    f'-ModifyDate={dt_str}',
+                    f'-TrackCreateDate={dt_str}',
+                    f'-TrackModifyDate={dt_str}',
+                    f'-MediaCreateDate={dt_str}',
+                    f'-MediaModifyDate={dt_str}',
+                    f'-CreationDate={dt_str}',
+                    f'-DateTimeOriginal={dt_str}',
+                ])
+            cmd.append(filepath)
+            subprocess.run(cmd, capture_output=True)
             
             ts = dt.timestamp()
             os.utime(filepath, (ts, ts))

@@ -84,8 +84,23 @@ def fix_exif_time(filepath: str, dt: datetime) -> bool:
         f'-AllDates={dt_str}',
         f'-FileModifyDate={dt_str}',
         f'-FileCreateDate={dt_str}',
-        filepath
     ]
+    
+    # 针对视频文件增加更多时间标签
+    ext = Path(filepath).suffix.lower()
+    if ext in ['.mp4', '.mov', '.m4v', '.3gp', '.avi', '.mkv', '.wmv']:
+        cmd.extend([
+            f'-CreateDate={dt_str}',
+            f'-ModifyDate={dt_str}',
+            f'-TrackCreateDate={dt_str}',
+            f'-TrackModifyDate={dt_str}',
+            f'-MediaCreateDate={dt_str}',
+            f'-MediaModifyDate={dt_str}',
+            f'-CreationDate={dt_str}',
+            f'-DateTimeOriginal={dt_str}',
+        ])
+    
+    cmd.append(filepath)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
         ts = dt.timestamp()
