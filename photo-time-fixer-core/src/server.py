@@ -404,6 +404,7 @@ def process():
             dt_str = dt.strftime('%Y:%m:%d %H:%M:%S')
             cmd = [
                 'exiftool', '-overwrite_original',
+                '-api', 'QuickTimeUTC',
                 f'-AllDates={dt_str}',
                 f'-FileModifyDate={dt_str}',
                 f'-FileCreateDate={dt_str}',

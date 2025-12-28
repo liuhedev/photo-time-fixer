@@ -81,6 +81,7 @@ def fix_exif_time(filepath: str, dt: datetime) -> bool:
     cmd = [
         'exiftool',
         '-overwrite_original',
+        '-api', 'QuickTimeUTC',
         f'-AllDates={dt_str}',
         f'-FileModifyDate={dt_str}',
         f'-FileCreateDate={dt_str}',
@@ -134,32 +135,34 @@ def main():
         # 批量模式过滤
         if only_special:
             name_lower = f.name.lower()
-            if not (name_lower.startswith('mmexport') or name_lower.startswith('petal')):
+            if not (name_lower.startswith('mmexport') or name_lower.startswith('petal') or re.match(r'^\d{14}_\d{10,13}', name_lower)):
                 continue
         
         dt = parse_time_from_filename(f.name)
         if dt:
+            target_path = f
             if rename_mode:
                 ts = int(dt.timestamp())
                 ext = f.suffix
                 new_name = dt.strftime('%Y%m%d%H%M%S') + '_' + str(ts) + ext
                 new_path = f.parent / new_name
-                if not new_path.exists():
-                    f.rename(new_path)
-                    print(f"✓ {f.name} -> {new_name}")
-                    renamed += 1
-                    f = new_path
-                else:
-                    print(f"✗ {f.name} (目标文件已存在)")
-                    failed += 1
-                    continue
+                if new_path != f:
+                    if not new_path.exists():
+                        f.rename(new_path)
+                        print(f"✓ {f.name} -> {new_name}")
+                        renamed += 1
+                        target_path = new_path
+                    else:
+                        print(f"✗ {f.name} (目标文件已存在)")
+                        failed += 1
+                        continue
             
-            if fix_exif_time(str(f), dt):
-                if not rename_mode:
-                    print(f"✓ {f.name} -> {dt}")
+            if fix_exif_time(str(target_path), dt):
+                if not rename_mode or (rename_mode and target_path == f):
+                    print(f"✓ {target_path.name} -> {dt}")
                 fixed += 1
             else:
-                print(f"✗ {f.name} (写入失败)")
+                print(f"✗ {target_path.name} (写入失败)")
                 failed += 1
         else:
             print(f"- {f.name} (无法解析)")
